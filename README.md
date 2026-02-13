@@ -1,131 +1,159 @@
-# Distributed File Storage — C++ Port
+# Distributed File Storage System
 
-This directory contains a full C++ reimplementation of the Java distributed file storage system. The design matches the original: **consistent hashing** for the storage DHT, **chain replication** for metadata, and the same TCP protocol so components are interchangeable.
+A scalable, fault-tolerant distributed file storage system implemented in C++. This project demonstrates core distributed computing concepts such as **Consistent Hashing** for data distribution and **Chain Replication** for strong metadata consistency.
 
-## Requirements
+## Project Goals
 
-- **C++17** compiler (GCC, Clang, or MSVC)
-- No external dependencies (SHA-256 is implemented in-tree)
+The primary goal of this project was to build a distributed system that ensures:
+*   **Scalability**: Evenly distribute load across storage nodes using Consistent Hashing.
+*   **Consistency**: Guarantee linearizable consistency for metadata using Chain Replication.
+*   **Fault Tolerance**: Ensure data remains accessible even if a storage node fails (Replication Factor = 2).
+*   **Performance**: Handle concurrent client requests efficiently using multi-threading.
 
-## Build
+## Architecture
 
-### Using Make (recommended)
+The system is organized into three distinct layers:
 
-```bash
-cd cpp
-make
-```
+### 1. Client Layer
+*   **Function**: Acts as the entry point for users.
+*   **Logic**: Splits files into 1MB chunks, computes SHA-256 Content IDs (CIDs), and orchestrates uploads/downloads. It uses the DHT to locate primary storage nodes and communicates with the Head of the metadata chain for updates.
 
-Executables are produced in `out/`:
+### 2. Metadata Layer (Chain Replication)
+*   **Topology**: A chain of 3 nodes: `Head -> Mid -> Tail`.
+*   **Consistency**: Implements strong consistency. Writes are propagated down the chain and only acknowledged after reaching the Tail.
+*   **Read Path**: Reads are served exclusively by the Tail to ensure the latest committed state is observed.
 
-- `out/storage_node` — storage node
-- `out/metadata_node` — metadata node (chain replication)
-- `out/client` — upload/download client
-- `out/verify_files` — compare CIDs of two files
-- `out/system_tests` — automated system tests
-- `out/performance_experiments` — scalability/throughput experiments
-- `out/performance_evaluation` — performance evaluation report
+### 3. Storage Layer (DHT Ring)
+*   **Partitioning**: Nodes are arranged on a consistent hash ring.
+*   **Replication**: Each chunk is stored on its primary node and replicated to the next `k-1` nodes (Successor List) for fault tolerance.
 
-### Using CMake
+## Key Features
 
-```bash
-cd cpp
-mkdir build && cd build
-cmake ..
-make
-```
+*   **Consistent Hashing (DHT)**: Minimizes data movement during node additions/removals.
+*   **Chain Replication**: Ensures strong consistency for file metadata.
+*   **Fault Tolerance**:
+    *   **Storage**: Automatic failover to replicas if a storage node goes down.
+    *   **Metadata**: Client handles failover if the Head node becomes unresponsive.
+*   **Concurrency**: Server nodes use a custom thread pool to handle multiple concurrent connections.
+*   **Integrity**: Verifies file integrity using SHA-256 hashing upon download.
 
-Binaries will be in `build/` (no OpenSSL required).
+## Performance Evaluation
 
-## Usage
+The system was evaluated for **Scalability** and **Throughput**:
 
-### 1. Start storage nodes (e.g. 2 nodes)
+*   **Scalability**: Latency remains low (< 50ms) for up to 10 concurrent clients. As expected, latency increases linearly with more clients due to resource contention on a single test machine.
+*   **Throughput**: The system efficiently handles larger files (1MB - 10MB), saturating available network bandwidth as the fixed overhead of metadata updates becomes negligible compared to data transfer time.
 
-Using config file (see `../nodes.conf`):
+> See `graph_scalability.png` and `graph_throughput.png` for detailed performance visualizations.
 
-```bash
-./out/storage_node ../nodes.conf 1 &
-./out/storage_node ../nodes.conf 2 &
-```
-
-Or run on specific ports (no config):
-
-- Storage: 8001, 8002 (match client defaults)
-- Metadata: 9001, 9002, 9003
-
-### 2. Start metadata chain (Tail → Mid → Head)
-
-```bash
-./out/metadata_node ../nodes.conf 13 &   # Tail (9003)
-./out/metadata_node ../nodes.conf 12 &   # Mid (9002)
-./out/metadata_node ../nodes.conf 11 &   # Head (9001)
-```
-
-### 3. Client
-
-```bash
-# Upload
-./out/client upload /path/to/file
-
-# Download
-./out/client download <filename> /path/to/output
-```
-
-### 4. Verify two files (e.g. original vs downloaded)
-
-```bash
-./out/verify_files original.bin downloaded.bin
-```
-
-### 5. Run system tests (starts nodes internally)
-
-```bash
-./out/system_tests
-```
-
-### 6. Performance experiments (writes `results.csv`)
-
-```bash
-./out/performance_experiments
-python3 ../plot_results.py   # if pandas available
-```
-
-## Project layout
+## Project Structure
 
 ```
 cpp/
-├── CMakeLists.txt
+├── include/            # Header files
+│   ├── Chunk.h
+│   ├── Client.h
+│   ├── ConsistentHash.h
+│   ├── FileMetaData.h
+│   ├── FileUtils.h
+│   ├── HashUtils.h
+│   ├── MetadataNode.h
+│   ├── StorageNode.h
+│   └── TCPSocket.h
+├── src/
+│   ├── client/         # Client application & CLI
+│   ├── common/         # Shared utilities (Hashing, File I/O, TCP)
+│   ├── dht/            # Consistent Hashing implementation
+│   ├── metadata/       # Metadata Node (Chain Replication)
+│   └── storage/        # Storage Node implementation
+├── tests/              # System tests & unit tests
 ├── Makefile
-├── README.md
-├── apps/                    # Main entry points
-│   ├── main_client.cpp
-│   ├── main_metadata_node.cpp
-│   ├── main_performance_evaluation.cpp
-│   ├── main_performance_experiments.cpp
-│   ├── main_storage_node.cpp
-│   ├── main_system_tests.cpp
-│   └── main_verify_files.cpp
-└── src/
-    ├── common/              # Chunk, FileMetadata, hashing, file I/O, config
-    ├── network/             # TCP client/server (length-prefixed messages)
-    ├── dht/                 # Consistent hash ring
-    ├── storage/             # Storage node (STORE/GET)
-    ├── metadata/            # Metadata node (chain replication, PUT/GET)
-    └── client/              # Client and verify_files
+└── nodes.conf          # Cluster configuration
 ```
 
-## Protocol compatibility
+## Setup & Usage
 
-The wire format is unchanged from the Java version:
+### Prerequisites
+*   C++17 compatible compiler (g++ or clang++)
+*   OpenSSL development libraries (`libssl-dev`)
+*   POSIX threads support
+*   Make
+*   Python 3 (for generating performance graphs)
 
-- **Messages**: 4-byte big-endian length + UTF-8 payload.
-- **Storage**: `STORE <hash>`, `GET <hash>`, `READY`/`ACK`, `FOUND`/`NOT_FOUND`.
-- **Metadata**: `PUT filename size chunkSize totalChunks rootHash hash1,hash2,...`, `GET filename`, `FOUND ...` / `NOT_FOUND`, `PING`/`PONG`, `DIE`, etc.
+### Building the Project
+```bash
+make
+```
 
-So a Java client can talk to C++ nodes and vice versa.
+### Running System Tests
+To run the automated fault tolerance and concurrency tests:
+```bash
+make test
+```
 
-## Notes
+**What this does:**
+*   Starts a local cluster (2 Storage Nodes, 3 Metadata Nodes).
+*   **Experiment A (Fault Tolerance)**: Uploads a file, kills a Storage Node, and verifies the file can still be downloaded from the replica.
+*   **Experiment B (Concurrency)**: Spawns 10 concurrent clients to upload/download files simultaneously.
 
-- **Config**: Storage/metadata node IDs and ports follow `nodes.conf` (e.g. IDs 1–10 storage, 11–20 metadata). The client defaults to `127.0.0.1:8001`, `8002` and `127.0.0.1:9001`–`9003`.
-- **Replication**: Storage replication factor is 2; metadata uses a 3-node chain (Head → Mid → Tail).
-- **Integrity**: Upload uses SHA-256 per chunk and a root hash; download can be checked with `verify_files` or by recomputing the CID.
+### Running the Interactive Client
+```bash
+make run
+```
+
+### Generating Performance Report
+To generate the performance graphs (`graph_scalability.png`, `graph_throughput.png`):
+```bash
+python plot_results.py
+```
+*Note: Requires `pandas` and `matplotlib` (`pip install pandas matplotlib`).*
+
+### Manual Node Launch
+To run individual nodes for a multi-machine deployment:
+```bash
+# Storage Nodes
+./bin/storage_node 9001 storage_data_1
+./bin/storage_node 9002 storage_data_2
+
+# Metadata Chain: HEAD -> MID -> TAIL
+./bin/metadata_node 8001 HEAD 127.0.0.1 8002
+./bin/metadata_node 8002 MID  127.0.0.1 8003
+./bin/metadata_node 8003 TAIL
+
+# Client
+./bin/client nodes.conf
+```
+
+## Running on Khoury Linux Cluster
+
+To deploy and run on the Khoury Linux cluster (e.g., `linux-079.khoury.northeastern.edu`):
+
+1.  **Transfer Code**:
+    ```bash
+    scp -r Distributed-File-Storage-CPP/ <your_username>@linux-079.khoury.northeastern.edu:~/
+    ```
+
+2.  **SSH & Compile**:
+    ```bash
+    ssh <your_username>@linux-079.khoury.northeastern.edu
+    cd Distributed-File-Storage-CPP
+    make
+    ```
+
+3.  **Run Evaluation**:
+    ```bash
+    make test
+    ```
+
+## Future Work
+
+*   **Persistent Storage**: Integrate RocksDB or LevelDB to replace the current in-memory storage, allowing data to survive process restarts.
+*   **Dynamic Configuration**: Improve client configuration to avoid hardcoded IP addresses and ports.
+
+## Contributors
+
+*   **Samyak Shah**
+*   **Mahip Parekh**
+
+---
+*CS 6650: Building Scalable Distributed Systems | December 2025*
