@@ -39,12 +39,25 @@ The system is organized into three distinct layers:
 
 ## Performance Evaluation
 
-The system was evaluated for **Scalability** and **Throughput**:
+The system was evaluated using two primary metrics: **Scalability** and **Throughput**.
 
-*   **Scalability**: Latency remains low (< 50ms) for up to 10 concurrent clients. As expected, latency increases linearly with more clients due to resource contention on a single test machine.
-*   **Throughput**: The system efficiently handles larger files (1MB - 10MB), saturating available network bandwidth as the fixed overhead of metadata updates becomes negligible compared to data transfer time.
+### 1. Scalability (Latency vs. Concurrent Clients)
 
-> See `graph_scalability.png` and `graph_throughput.png` for detailed performance visualizations.
+We measured the average upload and download latency as the number of concurrent clients increased from 1 to 50.
+
+*   **Observation**: Latency remains low (< 50ms) for up to 10 clients. As load increases to 50 clients, latency increases linearly.
+*   **Analysis**: This linear increase is expected. Each client connection consumes a thread from the thread pool. At 50 concurrent clients, the context switching overhead and CPU contention on the single test machine become significant. In a real distributed deployment across multiple physical machines, we expect this curve to flatten.
+
+![Scalability Graph](graph_scalability.png)
+
+### 2. Throughput (Latency vs. File Size)
+
+We measured latency for files ranging from 10KB to 10MB.
+
+*   **Observation**: The system shows efficient handling of larger files. The overhead per chunk is minimal.
+*   **Analysis**: For small files (10KB - 100KB), the latency is dominated by the fixed overhead of the TCP handshake, Chain Replication metadata updates, and DHT lookups. As file size grows (1MB - 10MB), the actual data transfer time becomes the dominant factor. The system effectively saturates the available network bandwidth.
+
+![Throughput Graph](graph_throughput.png)
 
 ## Project Structure
 
