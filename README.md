@@ -12,7 +12,9 @@ The primary goal of this project was to build a distributed system that ensures:
 
 ## Architecture
 
-The system is organized into three distinct layers:
+The system is organized into three distinct layers: **Client**, **Metadata (Chain Replication)**, and **Storage (DHT Ring)**. The diagram below illustrates how components interact during upload and download.
+
+![System Design Architecture](system_diagram.png)
 
 ### 1. Client Layer
 *   **Function**: Acts as the entry point for users.
